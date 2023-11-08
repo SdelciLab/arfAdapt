@@ -1,0 +1,570 @@
+---
+title: "ATACseq_RG_SDELCISAR_11"
+author: "dd"
+date: "2/17/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+<center><h2>**ATACseq Analysis**</h3></center><br>  
+
+
+```{r Load Packages,warning=FALSE,message=FALSE}
+library(edgeR)
+library(csaw)
+library(DiffBind)
+library(rtracklayer)
+library(GenomicRanges)
+library(stringr)
+library(pheatmap)
+library(RColorBrewer)
+library(ggrepel)
+library(EnsDb.Hsapiens.v79)
+library(AnnotationDbi)
+library(org.Hs.eg.db)
+library(clusterProfiler)
+library(ReactomePA)
+```
+
+```{r Quality Control Plots, echo=FALSE}
+
+####Plot percent mtDNA and percent Duplicate values####
+
+mtDNA_val=read.delim("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/Mapping/mtDNA_percent.txt",header=F,sep="")
+df=data.frame(Sample=factor(c(1:nrow(mtDNA_val))),mtDNA_Level=as.numeric(mtDNA_val[,2]))
+ggplot(data=df, aes(x=Sample, y=mtDNA_Level)) + geom_bar(stat="identity",fill="#CC3300",width=0.6) + xlab("Samples") + ylab("Duplicate Levels") + ggtitle("atac-seq mtDNA Levels") + theme_bw() + theme(plot.title = element_text(hjust = 0.5))  + theme(legend.position = "none",axis.text.x=element_blank(), axis.ticks.x=element_blank()) + theme(panel.grid.minor=element_blank(),panel.grid.major.x=element_blank())
+
+
+dup_val=read.delim("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/Mapping/ALL_Duplicate_values.txt",header=F)
+df=data.frame(Sample=factor(c(1:nrow(dup_val))),dup_Level=as.numeric(dup_val[,1]))
+ggplot(data=df, aes(x=Sample, y=dup_Level)) + geom_bar(stat="identity",fill="#E69F00",width=0.6) + xlab("Samples") + ylab("Duplicate Levels") + ggtitle("atac-seq Duplicate Levels") + theme_bw() + theme(plot.title = element_text(hjust = 0.5))  + theme(legend.position = "none",axis.text.x=element_blank(), axis.ticks.x=element_blank()) + theme(panel.grid.minor=element_blank(),panel.grid.major.x=element_blank())
+
+```
+
+
+
+
+
+```{r Input Files and csaw parameters, echo=FALSE}
+
+#Input Sample Sheet#
+sampleInfoFILE="/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/DiffBind/sampleSheetDiffBind.csv"
+designmatFILE="/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/DiffBind/designmatrix.txt"
+
+#Output files#
+CountsRDataFILE="/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/windowCountsVal.RData"
+AdjCountsMDSRDataFILE="/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/AdjCountsMDS.RData"
+
+#Parameters used in csaw#
+window_width=100
+window_spacing=50
+mergewindow_tol=500
+regions_maxwidth=5000
+FDR_cutoff=0.01
+
+#Load the BAM files#
+
+sampleInfo=read.csv(sampleInfoFILE, header=T)
+bam.files <- sampleInfo$bamReads
+param <- readParam(pe="both", max.frag=600) # Paired-end data #
+param
+
+
+# MDS Plot (csaw) #
+lnames=load(AdjCountsMDSRDataFILE)
+plotMDS(adj.counts,col=c(rep("blue",12), rep("green",12), rep("red",12), rep("darkolivegreen4",12)),labels=sampleInfo$SampleID,cex=0.6)
+
+#plotMDS(adj.counts,col=c(rep("blue",12), rep("green",12), rep("red",12), #
+#rep("darkolivegreen4",12)),pch=rep(c(15,16,17,18),each=3,4),labels=NULL)
+#legend("topleft", legend=c("AN", "AK", "A6", "A1"),
+#       col=c("blue", "green", "red", "darkolivegreen4"), lty=1, cex=0.8)
+#legend("topright", legend=c("T3", "T7", "T14", "T21"),
+#       pch=c(15,16,17,18), cex=0.8)
+
+MDSData=plotMDS(adj.counts,col=c(rep("blue",12), rep("green",12), rep("red",12), rep("darkolivegreen4",12)),labels=sampleInfo$SampleID,cex=0.6)
+MDS_coord=cbind(MDSData$x,MDSData$y)
+rownames(MDS_coord)=sampleInfo$SampleID
+colnames(MDS_coord)=c("x","y")
+write.table(MDS_coord,"/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/MDScoord.txt", quote=F, sep="\t", col.names=T,row.names=T)
+
+```
+```{r Differential Accessibility, echo=FALSE}
+
+Diff_Regions=c(14402,2572,727,235,892,21592,2933,5510,11797,1259,409,129)
+dat1=data.frame( Treatment=factor(rep(c("AK", "A6", "A1"),each=4)), Timept=factor(rep(c(3,7,14,21),3)), Diff_Regions=Diff_Regions)
+dat1$Treatment=factor(dat1$Treatment,levels = c("AK", "A6", "A1"),ordered=TRUE)
+ggplot(dat1, aes(fill=Timept, y=Diff_Regions, x=Treatment)) + geom_bar(position="dodge", stat="identity") +
+xlab("") + ylab("Differentially Accessible Regions") + ggtitle("ATAC-seq") + theme_bw() + theme(plot.title = element_text(hjust = 0.5))
+
+Diff_Regions=c(9297,2017,482,170,498,7647,1044,1392,7891,293,43,83,5100,557,247,67,395,13931,1890,4111,3903,966,368,50)
+dat1=data.frame( Treatment=factor(rep(rep(c("AK", "A6", "A1"),each=4),2)), Direction=factor(rep(c("UP","DOWN"),each=12)), Timept=factor(rep(c(3,7,14,21),6)), Diff_Regions=Diff_Regions-1)
+dat1$Treatment=factor(dat1$Treatment,levels = c("AK", "A6", "A1"),ordered=TRUE)
+dat1$Direction=factor(dat1$Direction,levels = c("UP", "DOWN"),ordered=TRUE)
+ggplot(dat1, aes(fill=Direction, y=Diff_Regions, x=Timept)) + geom_bar(position="dodge", stat="identity") +
+xlab("") + ylab("Differentially Accessible Regions") + ggtitle("ATAC-seq") + scale_fill_manual(values=c("#CC0033","#0099CC")) + theme_bw() + theme(plot.title = element_text(hjust = 0.5)) + facet_wrap(~ Treatment, ncol=2)
+
+
+#Overlaps in Binding sites#
+atacseq_data <- dba(sampleSheet="/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/DiffBind/sampleSheetcsawRegions.csv")
+atacseq = dba.peakset(atacseq_data, consensus = DBA_TREATMENT, minOverlap =1)
+
+dba.plotVenn(atacseq,c(1:4)) #AK peaks#
+
+dba.plotVenn(atacseq,c(5:8)) #A6 peaks#
+
+dba.plotVenn(atacseq,c(9:12)) #A1 peaks#
+
+
+# ##Heatmap Analysis##
+# #Treatment AK#
+# 
+# cpm_sigregion=read.delim("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/cpm_sigregion.AK_3.txt",header=T)
+# pheatmap(cpm_sigregion, scale="row", clustering_distance_rows="correlation", clustering_distance_cols = "correlation", show_rownames =F, show_colnames =T, cluster_cols=F, fontsize_row=4, main="AK vs. AN, TimePoint 3, log2CPM Significant Regions")
+# 
+# cpm_sigregion=read.delim("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/cpm_sigregion.AK_7.txt",header=T)
+# pheatmap(cpm_sigregion, scale="row", clustering_distance_rows="correlation", clustering_distance_cols = "correlation", show_rownames =F, show_colnames =T, cluster_cols=F, fontsize_row=4, main="AK vs. AN, TimePoint 7, log2CPM Significant Regions")
+# 
+# cpm_sigregion=read.delim("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/cpm_sigregion.AK_14.txt",header=T)
+# pheatmap(cpm_sigregion, scale="row", clustering_distance_rows="correlation", clustering_distance_cols = "correlation", show_rownames =F, show_colnames =T, cluster_cols=F, fontsize_row=4, main="AK vs. AN, TimePoint 14, log2CPM Significant Regions")
+# 
+# cpm_sigregion=read.delim("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/cpm_sigregion.AK_21.txt",header=T)
+# pheatmap(cpm_sigregion, scale="row", clustering_distance_rows="correlation", clustering_distance_cols = "correlation", show_rownames =F, show_colnames =T, cluster_cols=F, fontsize_row=4, main="AK vs. AN, TimePoint 21, log2CPM Significant Regions")
+# 
+# 
+# #Treatment A6#
+# 
+# cpm_sigregion=read.delim("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/cpm_sigregion.A6_3.txt",header=T)
+# pheatmap(cpm_sigregion, scale="row", clustering_distance_rows="correlation", clustering_distance_cols = "correlation", show_rownames =F, show_colnames =T, cluster_cols=F, fontsize_row=4, main="A6 vs. AN, TimePoint 3, log2CPM Significant Regions")
+# 
+# cpm_sigregion=read.delim("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/cpm_sigregion.A6_7.txt",header=T)
+# pheatmap(cpm_sigregion, scale="row", clustering_distance_rows="correlation", clustering_distance_cols = "correlation", show_rownames =F, show_colnames =T, cluster_cols=F, fontsize_row=4, main="A6 vs. AN, TimePoint 7, log2CPM Significant Regions")
+# 
+# cpm_sigregion=read.delim("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/cpm_sigregion.A6_14.txt",header=T)
+# pheatmap(cpm_sigregion, scale="row", clustering_distance_rows="correlation", clustering_distance_cols = "correlation", show_rownames =F, show_colnames =T, cluster_cols=F, fontsize_row=4, main="A6 vs. AN, TimePoint 14, log2CPM Significant Regions")
+# 
+# cpm_sigregion=read.delim("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/cpm_sigregion.A6_21.txt",header=T)
+# pheatmap(cpm_sigregion, scale="row", clustering_distance_rows="correlation", clustering_distance_cols = "correlation", show_rownames =F, show_colnames =T, cluster_cols=F, fontsize_row=4, main="A6 vs. AN, TimePoint 21, log2CPM Significant Regions")
+# 
+# 
+# #Treatment A1#
+# 
+# cpm_sigregion=read.delim("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/cpm_sigregion.A1_3.txt",header=T)
+# pheatmap(cpm_sigregion, scale="row", clustering_distance_rows="correlation", clustering_distance_cols = "correlation", show_rownames =F, show_colnames =T, cluster_cols=F, fontsize_row=4, main="A1 vs. AN, TimePoint 3, log2CPM Significant Regions")
+# 
+# cpm_sigregion=read.delim("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/cpm_sigregion.A1_7.txt",header=T)
+# pheatmap(cpm_sigregion, scale="row", clustering_distance_rows="correlation", clustering_distance_cols = "correlation", show_rownames =F, show_colnames =T, cluster_cols=F, fontsize_row=4, main="A1 vs. AN, TimePoint 7, log2CPM Significant Regions")
+# 
+# cpm_sigregion=read.delim("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/cpm_sigregion.A1_14.txt",header=T)
+# pheatmap(cpm_sigregion, scale="row", clustering_distance_rows="correlation", clustering_distance_cols = "correlation", show_rownames =F, show_colnames =T, cluster_cols=F, fontsize_row=4, main="A1 vs. AN, TimePoint 14, log2CPM Significant Regions")
+# 
+# cpm_sigregion=read.delim("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/cpm_sigregion.A1_21.txt",header=T)
+# pheatmap(cpm_sigregion, scale="row", clustering_distance_rows="correlation", clustering_distance_cols = "correlation", show_rownames =F, show_colnames =T, cluster_cols=F, fontsize_row=4, main="A1 vs. AN, TimePoint 21, log2CPM Significant Regions")
+
+```
+
+
+<center><h3>*Treatment AK vs. AN*</h3></center><br> 
+
+
+```{r csaw - Differential Accessibility, Treatment AK vs. AN , warning=FALSE, echo=FALSE}
+## Differential Accessibility analysis
+
+for(timept in c(3,7,14,21))
+{
+treatname="AK" 
+ctname="AN"  
+
+atacseqUPFILE=paste("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/Homer/mod_finalresUP.",treatname,"_",timept,".Homer.txt",sep="")
+atacseqDOWNFILE=paste("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/Homer/mod_finalresDOWN.",treatname,"_",timept,".Homer.txt",sep="")
+
+atacseqUP_data=read.delim(atacseqUPFILE,header=T)
+atacseqDOWN_data=read.delim(atacseqDOWNFILE,header=T)
+
+#Enrichment Analysis
+## Run GO enrichment analysis##
+
+#UP genes#
+assign(paste("egoUP_",timept,treatname,sep=""),enrichGO(gene = atacseqUP_data[,15],keyType = "ENSEMBL", OrgDb = org.Hs.eg.db, ont = "ALL", pAdjustMethod = "BH", qvalueCutoff = 0.05, readable = TRUE))
+
+tt1=data.frame(get(paste("egoUP_",timept,treatname,sep="")))
+write.table(tt1, file=paste("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/GO/egoUP_",timept,treatname,".txt",sep=""), sep="\t", quote=F, row.names = F)
+
+#DOWN genes#
+assign(paste("egoDOWN_",timept,treatname,sep=""),enrichGO(gene = atacseqDOWN_data[,15],keyType = "ENSEMBL", OrgDb = org.Hs.eg.db, ont = "ALL", pAdjustMethod = "BH", qvalueCutoff = 0.05, readable = TRUE))
+
+tt1=data.frame(get(paste("egoDOWN_",timept,treatname,sep="")))
+write.table(tt1, file=paste("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/GO/egoDOWN_",timept,treatname,".txt",sep=""), sep="\t", quote=F, row.names = F)
+
+##Pathway enrichment analysis##
+#UP genes#
+assign(paste("xx_",timept,treatname,sep=""),enrichPathway(gene=atacseqUP_data[,12], pvalueCutoff = 0.05, readable=TRUE))
+
+tt1=data.frame(get(paste("xx_",timept,treatname,sep="")))
+write.table(tt1, file=paste("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/GO/ReactomeUP_",timept,treatname,".txt",sep=""), sep="\t", quote=F, row.names = F)
+
+#DOWN genes#
+assign(paste("yy_",timept,treatname,sep=""),enrichPathway(gene=atacseqDOWN_data[,12], pvalueCutoff = 0.05, readable=TRUE))
+
+tt1=data.frame(get(paste("yy_",timept,treatname,sep="")))
+write.table(tt1, file=paste("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/GO/ReactomeDOWN_",timept,treatname,".txt",sep=""), sep="\t", quote=F, row.names = F)
+
+}
+
+```
+
+```{r Plots, Treatment AK vs. AN , warning=FALSE, echo=FALSE}
+
+treatname="AK"  
+ctname="AN" 
+
+timept=3
+if(length(egoUP_3AK$pvalue) > 0)
+{
+dotplot(egoUP_3AK, showCategory=20, font.size=8, title=paste("Gene Ontology, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(length(egoDOWN_3AK$pvalue) > 0)
+{
+dotplot(egoDOWN_3AK, showCategory=20, font.size=8, title=paste("Gene Ontology, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+
+if(nrow(xx_3AK)>0)
+{        
+barplot(xx_3AK,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(nrow(yy_3AK)>0)
+{        
+barplot(yy_3AK,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+
+timept=7
+if(length(egoUP_7AK$pvalue) > 0)
+{
+dotplot(egoUP_7AK, showCategory=20, font.size=8, title=paste("Gene Ontology, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(length(egoDOWN_7AK$pvalue) > 0)
+{
+dotplot(egoDOWN_7AK, showCategory=20, font.size=8, title=paste("Gene Ontology, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+
+if(nrow(xx_7AK)>0)
+{        
+barplot(xx_7AK,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(nrow(yy_7AK)>0)
+{        
+barplot(yy_7AK,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+
+
+timept=14
+if(length(egoUP_14AK$pvalue) > 0)
+{
+dotplot(egoUP_14AK, showCategory=20, font.size=8, title=paste("Gene Ontology, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(length(egoDOWN_14AK$pvalue) > 0)
+{  
+dotplot(egoDOWN_14AK, showCategory=20, font.size=8, title=paste("Gene Ontology, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(nrow(xx_14AK)>0)
+{        
+barplot(xx_14AK,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(nrow(yy_14AK)>0)
+{        
+barplot(yy_14AK,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+
+
+timept=21
+if(length(egoUP_21AK$pvalue) > 0)
+{
+dotplot(egoUP_21AK, showCategory=20, font.size=8, title=paste("Gene Ontology, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(length(egoDOWN_21AK$pvalue) > 0)
+{
+dotplot(egoDOWN_21AK, showCategory=20, font.size=8, title=paste("Gene Ontology, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(nrow(xx_21AK)>0)
+{        
+barplot(xx_21AK,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(nrow(yy_21AK)>0)
+{        
+barplot(yy_21AK,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+
+```
+
+
+
+<center><h3>*Treatment A6 vs. AN*</h3></center><br> 
+
+
+```{r csaw - Differential Accessibility, Treatment A6 vs. AN , warning=FALSE, echo=FALSE}
+## Differential Accessibility analysis
+
+for(timept in c(3,7,14,21))
+{
+treatname="A6" 
+ctname="AN"  
+
+atacseqUPFILE=paste("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/Homer/mod_finalresUP.",treatname,"_",timept,".Homer.txt",sep="")
+atacseqDOWNFILE=paste("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/Homer/mod_finalresDOWN.",treatname,"_",timept,".Homer.txt",sep="")
+
+atacseqUP_data=read.delim(atacseqUPFILE,header=T)
+atacseqDOWN_data=read.delim(atacseqDOWNFILE,header=T)
+
+#Enrichment Analysis
+## Run GO enrichment analysis##
+
+#UP genes#
+assign(paste("egoUP_",timept,treatname,sep=""),enrichGO(gene = atacseqUP_data[,15],keyType = "ENSEMBL", OrgDb = org.Hs.eg.db, ont = "ALL", pAdjustMethod = "BH", qvalueCutoff = 0.05, readable = TRUE))
+
+tt1=data.frame(get(paste("egoUP_",timept,treatname,sep="")))
+write.table(tt1, file=paste("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/GO/egoUP_",timept,treatname,".txt",sep=""), sep="\t", quote=F, row.names = F)
+
+#DOWN genes#
+assign(paste("egoDOWN_",timept,treatname,sep=""),enrichGO(gene = atacseqDOWN_data[,15],keyType = "ENSEMBL", OrgDb = org.Hs.eg.db, ont = "ALL", pAdjustMethod = "BH", qvalueCutoff = 0.05, readable = TRUE))
+
+tt1=data.frame(get(paste("egoDOWN_",timept,treatname,sep="")))
+write.table(tt1, file=paste("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/GO/egoDOWN_",timept,treatname,".txt",sep=""), sep="\t", quote=F, row.names = F)
+
+##Pathway enrichment analysis##
+#UP genes#
+assign(paste("xx_",timept,treatname,sep=""),enrichPathway(gene=atacseqUP_data[,12], pvalueCutoff = 0.05, readable=TRUE))
+
+tt1=data.frame(get(paste("xx_",timept,treatname,sep="")))
+write.table(tt1, file=paste("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/GO/ReactomeUP_",timept,treatname,".txt",sep=""), sep="\t", quote=F, row.names = F)
+
+#DOWN genes#
+assign(paste("yy_",timept,treatname,sep=""),enrichPathway(gene=atacseqDOWN_data[,12], pvalueCutoff = 0.05, readable=TRUE))
+
+tt1=data.frame(get(paste("yy_",timept,treatname,sep="")))
+write.table(tt1, file=paste("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/GO/ReactomeDOWN_",timept,treatname,".txt",sep=""), sep="\t", quote=F, row.names = F)
+
+}
+
+```
+
+```{r Plots, Treatment A6 vs. AN , warning=FALSE, echo=FALSE}
+
+treatname="A6"  
+ctname="AN" 
+
+timept=3
+if(length(egoUP_3A6$pvalue) > 0)
+{
+dotplot(egoUP_3A6, showCategory=20, font.size=8, title=paste("Gene Ontology, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(length(egoDOWN_3A6$pvalue) > 0)
+{
+dotplot(egoDOWN_3A6, showCategory=20, font.size=8, title=paste("Gene Ontology, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+
+if(nrow(xx_3A6)>0)
+{        
+barplot(xx_3A6,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(nrow(yy_3A6)>0)
+{        
+barplot(yy_3A6,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+
+timept=7
+if(length(egoUP_7A6$pvalue) > 0)
+{
+dotplot(egoUP_7A6, showCategory=20, font.size=8, title=paste("Gene Ontology, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(length(egoDOWN_7A6$pvalue) > 0)
+{
+dotplot(egoDOWN_7A6, showCategory=20, font.size=8, title=paste("Gene Ontology, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+
+if(nrow(xx_7A6)>0)
+{        
+barplot(xx_7A6,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(nrow(yy_7A6)>0)
+{       
+barplot(yy_7A6,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+
+
+timept=14
+if(length(egoUP_14A6$pvalue) > 0)
+{
+dotplot(egoUP_14A6, showCategory=20, font.size=8, title=paste("Gene Ontology, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(length(egoDOWN_14A6$pvalue) > 0)
+{  
+dotplot(egoDOWN_14A6, showCategory=20, font.size=8, title=paste("Gene Ontology, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(nrow(xx_14A6)>0)
+{        
+barplot(xx_14A6,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(nrow(yy_14A6)>0)
+{        
+barplot(yy_14A6,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+
+
+timept=21
+if(length(egoUP_21A6$pvalue) > 0)
+{
+dotplot(egoUP_21A6, showCategory=20, font.size=8, title=paste("Gene Ontology, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(length(egoDOWN_21A6$pvalue) > 0)
+{
+dotplot(egoDOWN_21A6, showCategory=20, font.size=8, title=paste("Gene Ontology, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(nrow(xx_21A6)>0)
+{        
+barplot(xx_21A6,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(nrow(yy_21A6)>0)
+{        
+barplot(yy_21A6,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+
+```
+
+
+
+<center><h3>*Treatment A1 vs. AN*</h3></center><br> 
+
+
+```{r csaw - Differential Accessibility, Treatment A1 vs. AN , warning=FALSE, echo=FALSE}
+## Differential Accessibility analysis
+
+for(timept in c(3,7,14,21))
+{
+treatname="A1" 
+ctname="AN"  
+
+atacseqUPFILE=paste("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/Homer/mod_finalresUP.",treatname,"_",timept,".Homer.txt",sep="")
+atacseqDOWNFILE=paste("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/Homer/mod_finalresDOWN.",treatname,"_",timept,".Homer.txt",sep="")
+
+atacseqUP_data=read.delim(atacseqUPFILE,header=T)
+atacseqDOWN_data=read.delim(atacseqDOWNFILE,header=T)
+
+#Enrichment Analysis
+## Run GO enrichment analysis##
+
+#UP genes#
+assign(paste("egoUP_",timept,treatname,sep=""),enrichGO(gene = atacseqUP_data[,15],keyType = "ENSEMBL", OrgDb = org.Hs.eg.db, ont = "ALL", pAdjustMethod = "BH", qvalueCutoff = 0.05, readable = TRUE))
+
+tt1=data.frame(get(paste("egoUP_",timept,treatname,sep="")))
+write.table(tt1, file=paste("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/GO/egoUP_",timept,treatname,".txt",sep=""), sep="\t", quote=F, row.names = F)
+
+#DOWN genes#
+assign(paste("egoDOWN_",timept,treatname,sep=""),enrichGO(gene = atacseqDOWN_data[,15],keyType = "ENSEMBL", OrgDb = org.Hs.eg.db, ont = "ALL", pAdjustMethod = "BH", qvalueCutoff = 0.05, readable = TRUE))
+
+tt1=data.frame(get(paste("egoDOWN_",timept,treatname,sep="")))
+write.table(tt1, file=paste("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/GO/egoDOWN_",timept,treatname,".txt",sep=""), sep="\t", quote=F, row.names = F)
+
+##Pathway enrichment analysis##
+#UP genes#
+assign(paste("xx_",timept,treatname,sep=""),enrichPathway(gene=atacseqUP_data[,12], pvalueCutoff = 0.05, readable=TRUE))
+
+tt1=data.frame(get(paste("xx_",timept,treatname,sep="")))
+write.table(tt1, file=paste("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/GO/ReactomeUP_",timept,treatname,".txt",sep=""), sep="\t", quote=F, row.names = F)
+
+#DOWN genes#
+assign(paste("yy_",timept,treatname,sep=""),enrichPathway(gene=atacseqDOWN_data[,12], pvalueCutoff = 0.05, readable=TRUE))
+
+tt1=data.frame(get(paste("yy_",timept,treatname,sep="")))
+write.table(tt1, file=paste("/users/ssdelci/ddatta/Projects/Ritobrata_Ghose/atacseq/SDELCISAR_11/csaw/GO/ReactomeDOWN_",timept,treatname,".txt",sep=""), sep="\t", quote=F, row.names = F)
+
+}
+
+```
+
+```{r Plots, Treatment A1 vs. AN , warning=FALSE, echo=FALSE}
+
+treatname="A1"  
+ctname="AN" 
+
+timept=3
+if(length(egoUP_3A1$pvalue) > 0)
+{
+dotplot(egoUP_3A1, showCategory=20, font.size=8, title=paste("Gene Ontology, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(length(egoDOWN_3A1$pvalue) > 0)
+{
+dotplot(egoDOWN_3A1, showCategory=20, font.size=8, title=paste("Gene Ontology, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+
+if(nrow(xx_3A1)>0)
+{        
+barplot(xx_3A1,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(nrow(yy_3A1)>0)
+{        
+barplot(yy_3A1,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+
+timept=7
+if(length(egoUP_7A1$pvalue) > 0)
+{
+dotplot(egoUP_7A1, showCategory=20, font.size=8, title=paste("Gene Ontology, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(length(egoDOWN_7A1$pvalue) > 0)
+{
+dotplot(egoDOWN_7A1, showCategory=20, font.size=8, title=paste("Gene Ontology, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+
+if(nrow(xx_7A1)>0)
+{        
+barplot(xx_7A1,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(nrow(yy_7A1)>0)
+{       
+barplot(yy_7A1,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+
+
+timept=14
+if(length(egoUP_14A1$pvalue) > 0)
+{
+dotplot(egoUP_14A1, showCategory=20, font.size=8, title=paste("Gene Ontology, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(length(egoDOWN_14A1$pvalue) > 0)
+{  
+dotplot(egoDOWN_14A1, showCategory=20, font.size=8, title=paste("Gene Ontology, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(nrow(xx_14A1)>0)
+{        
+barplot(xx_14A1,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(nrow(yy_14A1)>0)
+{        
+barplot(yy_14A1,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+
+
+timept=21
+if(length(egoUP_21A1$pvalue) > 0)
+{
+dotplot(egoUP_21A1, showCategory=20, font.size=8, title=paste("Gene Ontology, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(length(egoDOWN_21A1$pvalue) > 0)
+{
+dotplot(egoDOWN_21A1, showCategory=20, font.size=8, title=paste("Gene Ontology, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(nrow(xx_21A1)>0)
+{        
+barplot(xx_21A1,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, UP", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+if(nrow(yy_21A1)>0)
+{        
+barplot(yy_21A1,showCategory = 20,font.size=8) + ggtitle(paste("Reactome Pathways, DOWN", timept,treatname, "-", timept,ctname,sep=" ")) +  theme(plot.title = element_text(hjust = 0.5))
+}
+
+```
+
